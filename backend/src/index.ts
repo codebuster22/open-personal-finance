@@ -7,6 +7,7 @@ import oauthRoutes from "./routes/oauth";
 import gmailRoutes from "./routes/gmail";
 import subscriptionRoutes from "./routes/subscriptions";
 import { errorHandler } from "./middleware/errorHandler";
+import { testDatabaseConnection, initializeDatabase } from "./config/initDatabase";
 
 dotenv.config();
 
@@ -38,8 +39,26 @@ app.get("/api/health", (req, res) => {
 // Error handling
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
-});
+// Initialize database and start server
+const startServer = async () => {
+  try {
+    // Test database connection
+    await testDatabaseConnection();
+
+    // Initialize database tables
+    await initializeDatabase();
+
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`✓ Backend server running on port ${PORT}`);
+      console.log(`✓ Health check: http://localhost:${PORT}/api/health`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+startServer();
 
 export default app;
