@@ -1,6 +1,5 @@
 import { getClient } from "./database";
-import fs from "fs";
-import path from "path";
+import { SCHEMA_SQL } from "../models/schema";
 
 export const initializeDatabase = async () => {
   console.log("Initializing database...");
@@ -8,12 +7,8 @@ export const initializeDatabase = async () => {
   const client = await getClient();
 
   try {
-    // Read the schema SQL file
-    const schemaPath = path.join(__dirname, "../models/schema.sql");
-    const schema = fs.readFileSync(schemaPath, "utf8");
-
     // Execute the schema
-    await client.query(schema);
+    await client.query(SCHEMA_SQL);
 
     console.log("✓ Database tables initialized successfully");
   } catch (error: any) {
