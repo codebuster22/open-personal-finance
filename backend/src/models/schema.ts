@@ -39,6 +39,12 @@ CREATE TABLE IF NOT EXISTS gmail_accounts (
     sync_status VARCHAR(50) DEFAULT 'pending',
     total_emails INTEGER DEFAULT 0,
     processed_emails INTEGER DEFAULT 0,
+    last_page_token TEXT DEFAULT '',
+    last_processed_message_id TEXT DEFAULT '',
+    sync_started_at TIMESTAMP WITH TIME ZONE,
+    resume_query_hash TEXT DEFAULT '',
+    is_initial_sync_complete BOOLEAN DEFAULT false,
+    last_error TEXT DEFAULT '',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, email)
 );
@@ -96,6 +102,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 -- Indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_oauth_credentials_user ON oauth_credentials(user_id);
 CREATE INDEX IF NOT EXISTS idx_gmail_accounts_user ON gmail_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_gmail_accounts_sync_status ON gmail_accounts(id, sync_status, sync_started_at);
+CREATE INDEX IF NOT EXISTS idx_gmail_accounts_initial_sync ON gmail_accounts(is_initial_sync_complete);
 CREATE INDEX IF NOT EXISTS idx_emails_gmail_account ON emails(gmail_account_id);
 CREATE INDEX IF NOT EXISTS idx_emails_received ON emails(received_at);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);
