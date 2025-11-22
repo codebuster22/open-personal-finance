@@ -60,6 +60,18 @@ CREATE TABLE IF NOT EXISTS emails (
     UNIQUE(gmail_account_id, gmail_message_id)
 );
 
+-- Categories table (must come before subscriptions for foreign key)
+CREATE TABLE IF NOT EXISTS categories (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    color VARCHAR(20) DEFAULT '#10B981',
+    icon VARCHAR(50),
+    is_system BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, name)
+);
+
 -- Subscriptions table
 CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -75,27 +87,10 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     user_verified BOOLEAN DEFAULT false,
     first_detected TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    category_id UUID,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
-
--- Categories table
-CREATE TABLE IF NOT EXISTS categories (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    color VARCHAR(20) DEFAULT '#10B981',
-    icon VARCHAR(50),
-    is_system BOOLEAN DEFAULT false,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, name)
-);
-
--- Add foreign key for category
-ALTER TABLE subscriptions
-ADD CONSTRAINT fk_subscription_category
-FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL;
 
 -- Indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_oauth_credentials_user ON oauth_credentials(user_id);
