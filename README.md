@@ -22,169 +22,117 @@ A self-hosted personal finance application focused on subscription management th
 
 ## Quick Start
 
-### Prerequisites
+Choose your deployment mode:
 
-- [Docker](https://www.docker.com/) and Docker Compose
-- PostgreSQL database URL (from your provider or self-hosted)
+### 🚀 Local Development (Recommended for Development)
 
-### Docker Deployment (Recommended)
-
-1. **Get a PostgreSQL database URL:**
-   
-   You can use any PostgreSQL provider:
-   - **Neon** (https://neon.tech) - Free tier available
-   - **Supabase** (https://supabase.com) - Free tier available
-   - **Railway** (https://railway.app) - Free trial
-   - **Self-hosted**: Use `docker-compose.postgres.yml` (see below)
-
-2. **Configure environment:**
-   ```bash
-   cp .env.example .env
-   # Edit .env and set your DATABASE_URL
-   ```
-
-   Example `.env`:
-   ```env
-   DATABASE_URL=postgresql://user:password@host:5432/dbname
-   JWT_SECRET=your-random-secret-key-here
-   ENCRYPTION_KEY=your-random-encryption-key-here
-   ```
-
-3. **Build and start:**
-   ```bash
-   docker compose up --build -d
-   ```
-
-4. **Access the app:**
-   Open http://localhost:3000
-
-   The backend will automatically:
-   - ✓ Test the database connection
-   - ✓ Create all required tables if they don't exist
-   - ✓ Start the server
-
-### Local PostgreSQL (Optional)
-
-If you want to run PostgreSQL locally with Docker:
+PostgreSQL in Docker, Backend/Frontend with Bun:
 
 ```bash
-# Start PostgreSQL
+# 1. Start PostgreSQL
 docker compose -f docker-compose.postgres.yml up -d
 
-# Then use this DATABASE_URL in your .env
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_finance
+# 2. Configure backend
+cd backend
+cp .env.example .env
+# Edit .env and set DATABASE_URL to: postgresql://postgres:postgres@localhost:5432/personal_finance
 
-# Or in backend/.env for development
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_finance
+# 3. Configure frontend
+cd ../frontend
+cp .env.local.example .env.local
+
+# 4. Run (in separate terminals)
+cd backend && bun run dev
+cd frontend && bun run dev
+
+# 5. Access http://localhost:3000
 ```
 
-### Development Setup (Without Docker)
+### 🐳 Local Docker Testing
 
-1. **Install dependencies:**
-   ```bash
-   bun install
-   ```
+Everything in Docker (for testing before deployment):
 
-2. **Set up PostgreSQL:**
-   ```bash
-   # Option A: Use docker-compose.postgres.yml
-   docker compose -f docker-compose.postgres.yml up -d
-
-   # Option B: Use your own PostgreSQL server
-   # Just get the connection URL
-   ```
-
-3. **Configure backend:**
-   ```bash
-   cd backend
-   cp .env.example .env
-   # Edit .env and set DATABASE_URL
-   ```
-
-4. **Configure frontend:**
-   ```bash
-   cd ../frontend
-   cp .env.local.example .env.local
-   ```
-
-5. **Run development servers:**
-   
-   Terminal 1 - Backend:
-   ```bash
-   cd backend
-   bun run dev
-   ```
-
-   Terminal 2 - Frontend:
-   ```bash
-   cd frontend
-   bun run dev
-   ```
-
-6. **Access the app:**
-   Open http://localhost:3000
-
-## Environment Variables
-
-### Docker (.env in root)
-```env
-DATABASE_URL=postgresql://user:password@host:port/database
-JWT_SECRET=your-secret-key
-ENCRYPTION_KEY=your-encryption-key
-FRONTEND_URL=http://localhost:3000
-NEXT_PUBLIC_API_URL=http://localhost:3001/api
+```bash
+docker compose -f docker-compose.with-postgres.yml up --build -d
+# Access http://localhost:3000
 ```
 
-### Backend (backend/.env)
-```env
-PORT=3001
-NODE_ENV=development
-DATABASE_URL=postgresql://user:password@host:port/database
-JWT_SECRET=your-secret-key
-ENCRYPTION_KEY=your-encryption-key
-FRONTEND_URL=http://localhost:3000
-```
+### ☁️ Production Deployment (Railway)
 
-### Frontend (frontend/.env.local)
-```env
-NEXT_PUBLIC_API_URL=http://localhost:3001/api
-```
+See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for complete Railway deployment guide.
 
-## Gmail OAuth Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing
-3. Enable Gmail API
-4. Configure OAuth consent screen
-5. Create OAuth 2.0 credentials (Web application)
-6. Add redirect URI: `http://localhost:3000/oauth-callback`
-7. Copy Client ID and Client Secret to the app settings
+Quick version:
+1. Create PostgreSQL database on Railway
+2. Deploy backend + frontend from GitHub
+3. Set environment variables (DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY)
+4. Done! Database tables created automatically
 
 ## Project Structure
 
 ```
 open-personal-finance/
-├── frontend/                 # Next.js frontend
-│   ├── src/
-│   │   ├── app/             # App router pages
-│   │   ├── components/      # React components
-│   │   ├── contexts/        # React contexts
-│   │   ├── lib/            # Utility functions
-│   │   └── services/       # API services
-│   └── Dockerfile
-├── backend/                  # Express.js backend
-│   ├── src/
-│   │   ├── routes/         # API routes
-│   │   ├── services/       # Business logic
-│   │   ├── middleware/     # Express middleware
-│   │   ├── models/         # Database schema
-│   │   ├── config/         # Configuration
-│   │   └── utils/          # Utilities
-│   └── Dockerfile
-├── docker-compose.yml           # Main compose file (backend + frontend)
-├── docker-compose.postgres.yml  # Optional local PostgreSQL
-└── package.json                # Workspace configuration
+├── frontend/                          # Next.js frontend
+│   ├── src/app/                      # App router pages
+│   ├── src/components/               # React components
+│   ├── src/contexts/                 # Auth context
+│   └── src/services/                 # API client
+├── backend/                           # Express.js backend
+│   ├── src/routes/                   # API routes
+│   ├── src/services/                 # Business logic
+│   ├── src/models/schema.sql         # Database schema
+│   └── src/config/initDatabase.ts    # Auto initialization
+├── docker-compose.yml                 # Backend + Frontend (for production)
+├── docker-compose.postgres.yml        # Local PostgreSQL only
+├── docker-compose.with-postgres.yml   # All-in-one (for testing)
+└── DEPLOYMENT.md                      # Detailed deployment guide
 ```
+
+## Environment Variables
+
+### Generate Secrets
+
+```bash
+# Generate random secrets
+JWT_SECRET=$(openssl rand -base64 32)
+ENCRYPTION_KEY=$(openssl rand -base64 32)
+```
+
+### Local Development
+
+**backend/.env:**
+```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/personal_finance
+JWT_SECRET=<your-random-secret>
+ENCRYPTION_KEY=<your-random-secret>
+FRONTEND_URL=http://localhost:3000
+```
+
+**frontend/.env.local:**
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+```
+
+### Railway Production
+
+Set in Railway dashboard:
+```env
+DATABASE_URL=<railway-postgres-url>
+JWT_SECRET=<your-random-secret>
+ENCRYPTION_KEY=<your-random-secret>
+FRONTEND_URL=https://your-app.railway.app
+NEXT_PUBLIC_API_URL=https://your-app.railway.app/api
+```
+
+## Gmail OAuth Setup
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project
+3. Enable **Gmail API**
+4. Configure **OAuth consent screen**
+5. Create **OAuth 2.0 Client ID** (Web application)
+6. Add redirect URI: `http://localhost:3000/oauth-callback` (or your production URL)
+7. Copy **Client ID** and **Client Secret**
+8. In the app settings, add your OAuth credentials
 
 ## API Endpoints
 
@@ -195,46 +143,56 @@ open-personal-finance/
 
 ### OAuth Management
 - `POST /api/oauth/credentials` - Add OAuth credential
-- `GET /api/oauth/credentials` - List OAuth credentials
-- `DELETE /api/oauth/credentials/:id` - Remove credential
+- `GET /api/oauth/credentials` - List credentials
 - `GET /api/oauth/credentials/:id/auth-url` - Get Google auth URL
 - `POST /api/oauth/callback` - Handle OAuth callback
-- `GET /api/oauth/accounts` - List connected Gmail accounts
+- `GET /api/oauth/accounts` - List Gmail accounts
 
 ### Gmail
-- `POST /api/gmail/accounts/:id/sync` - Start email sync
+- `POST /api/gmail/accounts/:id/sync` - Sync emails
 
 ### Subscriptions
-- `GET /api/subscriptions` - List all subscriptions
+- `GET /api/subscriptions` - List subscriptions
+- `GET /api/subscriptions/stats` - Get statistics
 - `POST /api/subscriptions` - Create subscription
-- `GET /api/subscriptions/:id` - Get subscription
 - `PUT /api/subscriptions/:id` - Update subscription
 - `DELETE /api/subscriptions/:id` - Delete subscription
-- `GET /api/subscriptions/stats` - Get statistics
 - `GET /api/subscriptions/categories` - List categories
 
 ## Security Features
 
-- All passwords hashed with bcrypt (12 rounds)
-- OAuth secrets encrypted with AES-256-GCM
-- JWT tokens with 7-day expiration
-- CORS protection
-- Helmet security headers
-- Automatic database initialization (no manual SQL execution needed)
+- ✅ Passwords hashed with bcrypt (12 rounds)
+- ✅ OAuth secrets encrypted with AES-256-GCM
+- ✅ JWT tokens with 7-day expiration
+- ✅ CORS protection
+- ✅ Helmet security headers
+- ✅ Automatic database initialization (no manual SQL)
+- ✅ Environment-based configuration
+
+## Documentation
+
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Detailed deployment guide for Railway and other platforms
+- **[specs.md](./specs.md)** - Original system specifications
 
 ## Troubleshooting
 
 **Database connection errors:**
-- Verify your DATABASE_URL is correct
-- Check if your database server is accessible
-- Ensure the database exists
+- Verify DATABASE_URL is correct
+- Ensure database exists and is accessible
+- Check PostgreSQL is running (for local development)
 
-**Port conflicts:**
-- Change ports in docker-compose.yml if 3000 or 3001 are in use
+**Docker networking issues:**
+- Use `docker-compose.with-postgres.yml` for local all-in-one testing
+- For development, use `bun run dev` (not Docker) when PostgreSQL is separate
 
-**Build failures:**
-- Clear Docker cache: `docker compose down && docker system prune`
-- Rebuild: `docker compose up --build -d`
+**Railway deployment:**
+- See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step guide
+- Ensure all environment variables are set
+- Check build logs in Railway dashboard
+
+## Contributing
+
+This is a personal project, but issues and PRs are welcome!
 
 ## License
 

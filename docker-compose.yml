@@ -13,6 +13,9 @@ services:
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     ports:
       - "3001:3001"
+    # Uncomment for connecting to PostgreSQL on host machine (Linux)
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   frontend:
