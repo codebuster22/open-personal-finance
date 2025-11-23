@@ -16,17 +16,32 @@ function OAuthCallbackContent() {
       const code = searchParams.get("code");
       const state = searchParams.get("state"); // This is the credentialId
 
+      console.log("[OAuth Callback Page] Starting OAuth callback...");
+      console.log("[OAuth Callback Page] Code:", code ? `${code.substring(0, 20)}...` : "MISSING");
+      console.log("[OAuth Callback Page] State (credentialId):", state);
+
       if (!code || !state) {
+        console.error("[OAuth Callback Page] Missing parameters!");
         setError("Invalid callback parameters");
         return;
       }
 
       try {
         setStatus("Exchanging authorization code...");
-        await api.handleOAuthCallback(code, state);
+        console.log("[OAuth Callback Page] Calling API handleOAuthCallback...");
+
+        const result = await api.handleOAuthCallback(code, state);
+        console.log("[OAuth Callback Page] ✓ OAuth callback successful:", result);
+
         setStatus("Account connected successfully! Redirecting...");
-        setTimeout(() => router.push("/settings"), 2000);
+        console.log("[OAuth Callback Page] Redirecting to settings in 2 seconds...");
+
+        setTimeout(() => {
+          console.log("[OAuth Callback Page] Navigating to /settings");
+          router.push("/settings");
+        }, 2000);
       } catch (err: any) {
+        console.error("[OAuth Callback Page] ❌ OAuth callback failed:", err);
         setError(err.message || "Failed to complete OAuth flow");
       }
     };

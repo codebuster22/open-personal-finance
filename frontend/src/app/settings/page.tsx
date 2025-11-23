@@ -75,14 +75,19 @@ export default function SettingsPage() {
 
   const loadData = async () => {
     try {
+      console.log("[Settings] Loading OAuth credentials and Gmail accounts...");
       const [credsData, accountsData] = await Promise.all([
         api.getOAuthCredentials(),
         api.getGmailAccounts(),
       ]);
+      console.log("[Settings] ✓ Loaded credentials:", credsData.credentials.length);
+      console.log("[Settings] ✓ Loaded Gmail accounts:", accountsData.accounts.length);
+      console.log("[Settings] Gmail accounts data:", accountsData.accounts);
+
       setCredentials(credsData.credentials);
       setInitialAccounts(accountsData.accounts);
     } catch (error) {
-      console.error("Failed to load data:", error);
+      console.error("[Settings] ❌ Failed to load data:", error);
     }
   };
 
