@@ -43,6 +43,14 @@ export function useGmailAccountPolling(
   const shouldBePollingRef = useRef(false);
 
   /**
+   * Update accounts state when initialAccounts prop changes
+   * This handles the case when data is refreshed externally (e.g., after OAuth callback)
+   */
+  useEffect(() => {
+    setAccounts(initialAccounts);
+  }, [initialAccounts]);
+
+  /**
    * Determine if polling should be active based on account statuses
    * Poll during both sync and processing
    */

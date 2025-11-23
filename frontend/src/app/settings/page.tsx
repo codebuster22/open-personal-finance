@@ -65,11 +65,13 @@ export default function SettingsPage() {
     }
   }, [user, loading, router]);
 
+  // Load data on mount - this ensures fresh data after OAuth callback
   useEffect(() => {
-    if (user) {
+    if (user && !loading) {
       loadData();
     }
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loading]); // Runs when user or loading state changes
 
   const loadData = async () => {
     try {
