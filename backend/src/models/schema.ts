@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS gmail_accounts (
     resume_query_hash TEXT DEFAULT '',
     is_initial_sync_complete BOOLEAN DEFAULT false,
     last_error TEXT DEFAULT '',
+    processing_status VARCHAR(50) DEFAULT 'idle',
+    emails_to_analyze INTEGER DEFAULT 0,
+    emails_analyzed INTEGER DEFAULT 0,
+    subscriptions_found INTEGER DEFAULT 0,
+    processing_started_at TIMESTAMP WITH TIME ZONE,
+    ai_cost_total DECIMAL(10,4) DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, email)
 );
@@ -63,6 +69,9 @@ CREATE TABLE IF NOT EXISTS emails (
     subscription_confidence DECIMAL(5,4) DEFAULT 0,
     extracted_data JSONB,
     processed_at TIMESTAMP WITH TIME ZONE,
+    ai_provider VARCHAR(50),
+    ai_reasoning TEXT,
+    analysis_attempts INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(gmail_account_id, gmail_message_id)
 );
@@ -104,8 +113,10 @@ CREATE INDEX IF NOT EXISTS idx_oauth_credentials_user ON oauth_credentials(user_
 CREATE INDEX IF NOT EXISTS idx_gmail_accounts_user ON gmail_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_gmail_accounts_sync_status ON gmail_accounts(id, sync_status, sync_started_at);
 CREATE INDEX IF NOT EXISTS idx_gmail_accounts_initial_sync ON gmail_accounts(is_initial_sync_complete);
+CREATE INDEX IF NOT EXISTS idx_gmail_accounts_processing ON gmail_accounts(id, processing_status, processing_started_at);
 CREATE INDEX IF NOT EXISTS idx_emails_gmail_account ON emails(gmail_account_id);
 CREATE INDEX IF NOT EXISTS idx_emails_received ON emails(received_at);
+CREATE INDEX IF NOT EXISTS idx_emails_unprocessed ON emails(gmail_account_id, processed_at);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id);

@@ -9,6 +9,11 @@ interface GmailAccount {
   last_sync: string | null;
   last_error: string;
   is_initial_sync_complete: boolean;
+  processing_status: string;
+  emails_to_analyze: number;
+  emails_analyzed: number;
+  subscriptions_found: number;
+  ai_cost_total: number;
 }
 
 interface UseGmailAccountPollingReturn {
@@ -39,11 +44,14 @@ export function useGmailAccountPolling(
 
   /**
    * Determine if polling should be active based on account statuses
+   * Poll during both sync and processing
    */
   const shouldPoll = useCallback((accountList: GmailAccount[]): boolean => {
     return accountList.some(
       (account) =>
-        account.sync_status === "syncing" || account.sync_status === "pending"
+        account.sync_status === "syncing" ||
+        account.sync_status === "pending" ||
+        account.processing_status === "analyzing"
     );
   }, []);
 

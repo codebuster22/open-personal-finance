@@ -10,6 +10,7 @@ import {
 import { decrypt } from "../config/encryption";
 import { AppError } from "../middleware/errorHandler";
 import { buildGmailSyncQuery, calculateQueryHash } from "../config/emailQueries";
+import { startEmailProcessing } from "./emailProcessor";
 
 interface GmailMessage {
   id: string;
@@ -428,6 +429,11 @@ export const syncGmailAccount = async (
     console.log(
       `[GmailSync] [AccountID:${accountId}] [Complete] Processed ${processedCount} emails in ${durationSeconds}s. Skipped: ${skippedCount}`
     );
+
+    // Trigger automatic email processing (non-blocking)
+    startEmailProcessing(accountId, userId).catch((error) => {
+      console.error(`[EmailProcessing] Failed to start for account ${accountId}:`, error);
+    });
 
     return { processed: processedCount, total: totalCount };
   } catch (error: any) {
