@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+
 interface GmailAccount {
   id: string;
   email: string;
@@ -68,19 +70,32 @@ export function useGmailAccountPolling(
    */
   const fetchAccounts = useCallback(async (): Promise<GmailAccount[]> => {
     try {
-      const response = await fetch("/api/oauth/accounts", {
-        credentials: "include",
+      // Get auth token from localStorage
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/oauth/accounts`, {
+        headers,
       });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch accounts: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      setAccounts(data);
+      const result = await response.json();
+      const accountsData = result.data?.accounts || result.accounts || [];
+
+      setAccounts(accountsData);
       setLastUpdateTime(new Date());
       setError(null);
-      return data;
+      return accountsData;
     } catch (err: any) {
       const errorMessage = err.message || "Failed to fetch account status";
       setError(errorMessage);
