@@ -351,6 +351,11 @@ export const syncGmailAccount = async (
     console.log(`[GmailSync] [AccountID:${accountId}] [Fetching] Starting email fetch and save`);
 
     do {
+      console.log(
+        `[GmailSync] [AccountID:${accountId}] [Batch ${batchNumber + 1}] Fetching up to 100 emails...`
+      );
+
+      const fetchStart = Date.now();
       const { emails, nextPageToken } = await fetchEmails(
         accountId,
         userId,
@@ -358,12 +363,19 @@ export const syncGmailAccount = async (
         currentPageToken,
         gmailQuery
       );
+      const fetchDuration = Date.now() - fetchStart;
 
       if (!emails || emails.length === 0) {
+        console.log(`[GmailSync] [AccountID:${accountId}] [Batch ${batchNumber + 1}] No more emails to fetch`);
         break;
       }
 
+      console.log(
+        `[GmailSync] [AccountID:${accountId}] [Batch ${batchNumber + 1}] Fetched ${emails.length} email IDs in ${fetchDuration}ms`
+      );
+
       let lastMessageIdInBatch = "";
+      let batchEmailsProcessed = 0;
 
       for (const email of emails) {
         try {
@@ -371,6 +383,7 @@ export const syncGmailAccount = async (
           await saveEmail(accountId, details);
           lastMessageIdInBatch = email.id;
           processedCount++;
+          batchEmailsProcessed++;
         } catch (error: any) {
           console.error(
             `[GmailSync] [AccountID:${accountId}] [Error] Failed to process email ${email.id}:`,
@@ -381,31 +394,43 @@ export const syncGmailAccount = async (
         }
       }
 
+      console.log(
+        `[GmailSync] [AccountID:${accountId}] [Batch ${batchNumber + 1}] Saved ${batchEmailsProcessed} emails, skipped ${skippedCount} total`
+      );
+
       // Save progress after entire batch completes
+      const saveStart = Date.now();
       await saveProgressTransaction(
         accountId,
         processedCount,
         nextPageToken || "",
         lastMessageIdInBatch
       );
+      const saveDuration = Date.now() - saveStart;
 
-      // Log progress every 10 batches (every 1000 emails)
+      console.log(
+        `[GmailSync] [AccountID:${accountId}] [Batch ${batchNumber + 1}] Progress saved in ${saveDuration}ms`
+      );
+
+      // Log progress every batch for better visibility
       batchNumber++;
-      if (batchNumber % 10 === 0) {
-        const percentage = Math.floor((processedCount / totalCount) * 100);
-        const elapsedSeconds = Math.floor((Date.now() - syncStartTime) / 1000);
-        console.log(
-          `[GmailSync] [AccountID:${accountId}] [Progress] ${processedCount}/${totalCount} (${percentage}%) - ${batchNumber} batches, ${elapsedSeconds}s elapsed`
-        );
-      }
+      const percentage = Math.floor((processedCount / totalCount) * 100);
+      const elapsedSeconds = Math.floor((Date.now() - syncStartTime) / 1000);
+      const emailsPerSecond = processedCount / (elapsedSeconds || 1);
 
-      // Rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      console.log(
+        `[GmailSync] [AccountID:${accountId}] [Progress] ${processedCount}/${totalCount} (${percentage}%) - Batch ${batchNumber}, ${elapsedSeconds}s elapsed, ${emailsPerSecond.toFixed(1)} emails/s`
+      );
 
       // Check for completion
       if (!nextPageToken) {
+        console.log(`[GmailSync] [AccountID:${accountId}] [Complete] No more pages, finishing sync`);
         break;
       }
+
+      // Rate limiting - 100ms delay between batches
+      console.log(`[GmailSync] [AccountID:${accountId}] [Batch ${batchNumber}] Rate limiting: waiting 100ms...`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       currentPageToken = nextPageToken;
     } while (true);
