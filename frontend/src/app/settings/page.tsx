@@ -8,7 +8,8 @@ import { api } from "@/services/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Plus, Trash2, ExternalLink, RefreshCw } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, ExternalLink, RefreshCw, Loader2, CheckCircle2, AlertCircle, Clock } from "lucide-react";
+import { useGmailAccountPolling } from "@/hooks/useGmailAccountPolling";
 
 interface OAuthCredential {
   id: string;
@@ -25,13 +26,15 @@ interface GmailAccount {
   total_emails: number;
   processed_emails: number;
   last_sync: string | null;
+  last_error: string;
+  is_initial_sync_complete: boolean;
 }
 
 export default function SettingsPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const [credentials, setCredentials] = useState<OAuthCredential[]>([]);
-  const [accounts, setAccounts] = useState<GmailAccount[]>([]);
+  const [initialAccounts, setInitialAccounts] = useState<GmailAccount[]>([]);
   const [showAddCredential, setShowAddCredential] = useState(false);
   const [newCredential, setNewCredential] = useState({
     credentialName: "",
@@ -41,6 +44,15 @@ export default function SettingsPage() {
   });
   const [error, setError] = useState("");
   const [loadingAction, setLoadingAction] = useState(false);
+
+  // Use polling hook for real-time account updates
+  const {
+    accounts,
+    isPolling,
+    error: pollingError,
+    lastUpdateTime,
+    manualRefresh,
+  } = useGmailAccountPolling(initialAccounts, 5000);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -61,7 +73,7 @@ export default function SettingsPage() {
         api.getGmailAccounts(),
       ]);
       setCredentials(credsData.credentials);
-      setAccounts(accountsData.accounts);
+      setInitialAccounts(accountsData.accounts);
     } catch (error) {
       console.error("Failed to load data:", error);
     }
@@ -112,10 +124,49 @@ export default function SettingsPage() {
   const handleSyncAccount = async (accountId: string) => {
     try {
       await api.syncGmailAccount(accountId);
-      alert("Sync started! This may take a few minutes.");
-      await loadData();
+      // Polling will automatically start when status changes to "syncing"
+      await manualRefresh();
     } catch (err: any) {
       setError(err.message || "Failed to start sync");
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "pending":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-yellow-500/10 text-yellow-600">
+            <Clock className="h-3 w-3" />
+            Pending
+          </span>
+        );
+      case "syncing":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-blue-500/10 text-blue-600">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Syncing
+          </span>
+        );
+      case "completed":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-green-500/10 text-green-600">
+            <CheckCircle2 className="h-3 w-3" />
+            Completed
+          </span>
+        );
+      case "error":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-600">
+            <AlertCircle className="h-3 w-3" />
+            Error
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-gray-500/10 text-gray-600">
+            {status}
+          </span>
+        );
     }
   };
 
@@ -281,12 +332,28 @@ export default function SettingsPage() {
         {/* Connected Gmail Accounts */}
         <Card>
           <CardHeader>
-            <CardTitle>Connected Gmail Accounts</CardTitle>
-            <CardDescription>
-              Gmail accounts connected for subscription detection
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Connected Gmail Accounts</CardTitle>
+                <CardDescription>
+                  Gmail accounts connected for subscription detection
+                </CardDescription>
+              </div>
+              {isPolling && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Polling updates...
+                </div>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
+            {pollingError && (
+              <div className="mb-4 p-3 text-sm text-yellow-600 bg-yellow-500/10 rounded-md">
+                Polling error: {pollingError}. Retrying automatically...
+              </div>
+            )}
+
             {accounts.length === 0 ? (
               <div className="text-center py-4 text-muted-foreground">
                 No Gmail accounts connected yet. Add OAuth credentials first, then click
@@ -294,32 +361,88 @@ export default function SettingsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {accounts.map((account) => (
-                  <div
-                    key={account.id}
-                    className="flex items-center justify-between p-4 border rounded-lg"
-                  >
-                    <div>
-                      <h3 className="font-medium">{account.email}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        Status: {account.sync_status} •{" "}
-                        {account.processed_emails}/{account.total_emails} emails processed
-                      </p>
-                      {account.last_sync && (
-                        <p className="text-xs text-muted-foreground">
-                          Last sync: {new Date(account.last_sync).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={() => handleSyncAccount(account.id)}
+                {accounts.map((account) => {
+                  const percentage =
+                    account.total_emails > 0
+                      ? Math.floor((account.processed_emails / account.total_emails) * 100)
+                      : 0;
+                  const isSyncing = account.sync_status === "syncing";
+
+                  return (
+                    <div
+                      key={account.id}
+                      className="p-4 border rounded-lg space-y-3"
                     >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Sync
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h3 className="font-medium">{account.email}</h3>
+                            {getStatusBadge(account.sync_status)}
+                          </div>
+
+                          {/* Progress information */}
+                          {account.total_emails > 0 && (
+                            <div className="space-y-1">
+                              <p className="text-sm text-muted-foreground">
+                                {account.processed_emails.toLocaleString()} /{" "}
+                                {account.total_emails.toLocaleString()} emails ({percentage}%)
+                              </p>
+                              {isSyncing && (
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                  <div
+                                    className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${percentage}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Error message */}
+                          {account.sync_status === "error" && account.last_error && (
+                            <div className="mt-2 p-2 text-sm text-red-600 bg-red-500/10 rounded">
+                              {account.last_error}
+                            </div>
+                          )}
+
+                          {/* Last sync time */}
+                          {account.last_sync && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Last sync: {new Date(account.last_sync).toLocaleString()}
+                            </p>
+                          )}
+
+                          {/* Sync type indicator */}
+                          {!account.is_initial_sync_complete && account.sync_status === "syncing" && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Initial sync in progress (last 12 months)
+                            </p>
+                          )}
+                          {account.is_initial_sync_complete && account.sync_status === "syncing" && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Incremental sync in progress (new emails only)
+                            </p>
+                          )}
+                        </div>
+
+                        <Button
+                          variant="outline"
+                          onClick={() => handleSyncAccount(account.id)}
+                          disabled={isSyncing}
+                        >
+                          <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? "animate-spin" : ""}`} />
+                          {isSyncing ? "Syncing..." : "Sync Now"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {lastUpdateTime && (
+                  <p className="text-xs text-center text-muted-foreground">
+                    Last updated: {lastUpdateTime.toLocaleTimeString()}
+                  </p>
+                )}
               </div>
             )}
           </CardContent>

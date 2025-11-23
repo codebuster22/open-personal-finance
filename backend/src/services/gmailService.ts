@@ -1,7 +1,15 @@
 import { query } from "../config/database";
-import { getGmailAccountById, getOAuthCredentialById, updateGmailAccountTokens, updateGmailAccountSyncStatus } from "./oauthService";
+import {
+  getGmailAccountById,
+  getOAuthCredentialById,
+  updateGmailAccountTokens,
+  updateGmailAccountSyncStatus,
+  getResumeStatus,
+  clearResumeData,
+} from "./oauthService";
 import { decrypt } from "../config/encryption";
 import { AppError } from "../middleware/errorHandler";
+import { buildGmailSyncQuery, calculateQueryHash } from "../config/emailQueries";
 
 interface GmailMessage {
   id: string;
@@ -66,13 +74,15 @@ export const getAccessToken = async (
 export const fetchEmails = async (
   accountId: string,
   userId: string,
-  maxResults: number = 100,
-  pageToken?: string
+  maxResults: number,
+  pageToken: string | null,
+  gmailQuery: string
 ): Promise<{ emails: any[]; nextPageToken?: string }> => {
   const accessToken = await getAccessToken(accountId, userId);
 
   const url = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
   url.searchParams.set("maxResults", maxResults.toString());
+  url.searchParams.set("q", gmailQuery);
   if (pageToken) {
     url.searchParams.set("pageToken", pageToken);
   }
@@ -184,62 +194,286 @@ export const saveEmail = async (
   return result.rows[0].id;
 };
 
+/**
+ * Save sync progress atomically in a transaction
+ */
+const saveProgressTransaction = async (
+  accountId: string,
+  processedCount: number,
+  pageToken: string,
+  lastMessageId: string
+): Promise<void> => {
+  try {
+    await query("BEGIN");
+
+    await query(
+      `UPDATE gmail_accounts
+       SET processed_emails = $1,
+           last_page_token = $2,
+           last_processed_message_id = $3
+       WHERE id = $4`,
+      [processedCount, pageToken, lastMessageId, accountId]
+    );
+
+    await query("COMMIT");
+  } catch (error) {
+    await query("ROLLBACK");
+
+    // Retry once
+    try {
+      await query("BEGIN");
+
+      await query(
+        `UPDATE gmail_accounts
+         SET processed_emails = $1,
+             last_page_token = $2,
+             last_processed_message_id = $3
+         WHERE id = $4`,
+        [processedCount, pageToken, lastMessageId, accountId]
+      );
+
+      await query("COMMIT");
+    } catch (retryError) {
+      await query("ROLLBACK");
+      console.error("[GmailSync] Transaction failed after retry:", retryError);
+      // Don't throw - let sync continue
+    }
+  }
+};
+
 export const syncGmailAccount = async (
   accountId: string,
   userId: string
 ): Promise<{ processed: number; total: number }> => {
-  await updateGmailAccountSyncStatus(accountId, "syncing");
-
-  let processed = 0;
-  let total = 0;
-  let pageToken: string | undefined;
+  const syncStartTime = Date.now();
 
   try {
-    // First pass: count total emails
-    const initialFetch = await fetchEmails(accountId, userId, 1);
+    // Phase 0: Resume Detection and Validation
+    console.log(`[GmailSync] [AccountID:${accountId}] [Start] Beginning sync process`);
 
-    // Fetch all emails
+    const resumeStatus = await getResumeStatus(accountId);
+    const account = await getGmailAccountById(accountId, userId);
+
+    // Determine sync type (initial vs incremental)
+    const syncType = account.is_initial_sync_complete ? "incremental" : "initial";
+    const lastSyncDate = account.last_sync ? new Date(account.last_sync) : null;
+
+    // Build query based on sync type
+    const gmailQuery = buildGmailSyncQuery(syncType, lastSyncDate, 12);
+    const currentQueryHash = await calculateQueryHash(gmailQuery);
+
+    console.log(
+      `[GmailSync] [AccountID:${accountId}] [Query] Type: ${syncType}, Query: ${gmailQuery}`
+    );
+
+    // Validate resume compatibility
+    let canResume = resumeStatus.canResume;
+    let isResuming = false;
+    let startingPageToken: string | null = null;
+    let startingProcessedCount = 0;
+    let skipCounting = false;
+
+    if (canResume) {
+      // Check if query hash matches
+      if (resumeStatus.queryHash !== currentQueryHash) {
+        console.log(
+          `[GmailSync] [AccountID:${accountId}] [QueryMismatch] Old hash: ${resumeStatus.queryHash}, New hash: ${currentQueryHash}, starting fresh`
+        );
+        await clearResumeData(accountId);
+        canResume = false;
+      } else {
+        isResuming = true;
+        startingPageToken = resumeStatus.resumeToken;
+        startingProcessedCount = resumeStatus.processedCount;
+        skipCounting = true;
+
+        if (resumeStatus.isStale) {
+          console.log(
+            `[GmailSync] [AccountID:${accountId}] [Resume] Resuming stale sync from ${startingProcessedCount} emails. ${resumeStatus.staleReason}`
+          );
+        } else {
+          console.log(
+            `[GmailSync] [AccountID:${accountId}] [Resume] Resuming from ${startingProcessedCount} emails`
+          );
+        }
+      }
+    }
+
+    // Initialize sync if not resuming
+    if (!isResuming) {
+      await updateGmailAccountSyncStatus(
+        accountId,
+        "syncing",
+        undefined,
+        0,
+        "",
+        "",
+        new Date(),
+        currentQueryHash
+      );
+    }
+
+    // Phase 1: Counting (conditional)
+    let totalCount = 0;
+
+    if (!skipCounting) {
+      console.log(`[GmailSync] [AccountID:${accountId}] [Counting] Starting email count`);
+
+      let countPageToken: string | null = null;
+      do {
+        const { emails, nextPageToken } = await fetchEmails(
+          accountId,
+          userId,
+          500,
+          countPageToken,
+          gmailQuery
+        );
+        totalCount += emails.length;
+        countPageToken = nextPageToken || null;
+      } while (countPageToken);
+
+      await updateGmailAccountSyncStatus(accountId, "syncing", totalCount, 0);
+      console.log(`[GmailSync] [AccountID:${accountId}] [Counted] Total: ${totalCount} emails`);
+    } else {
+      totalCount = resumeStatus.totalCount;
+      console.log(
+        `[GmailSync] [AccountID:${accountId}] [Resume] Total already known: ${totalCount} emails`
+      );
+    }
+
+    // Phase 2: Fetching with Resume Support
+    let currentPageToken: string | null = startingPageToken;
+    let processedCount = startingProcessedCount;
+    let batchNumber = Math.floor(processedCount / 100);
+    let skippedCount = 0;
+
+    console.log(`[GmailSync] [AccountID:${accountId}] [Fetching] Starting email fetch and save`);
+
     do {
-      const { emails, nextPageToken } = await fetchEmails(accountId, userId, 100, pageToken);
-      total += emails.length;
-      pageToken = nextPageToken;
-    } while (pageToken);
+      const { emails, nextPageToken } = await fetchEmails(
+        accountId,
+        userId,
+        100,
+        currentPageToken,
+        gmailQuery
+      );
 
-    await updateGmailAccountSyncStatus(accountId, "syncing", total, 0);
+      if (!emails || emails.length === 0) {
+        break;
+      }
 
-    // Reset for processing
-    pageToken = undefined;
-
-    // Second pass: fetch and save email details
-    do {
-      const { emails, nextPageToken } = await fetchEmails(accountId, userId, 100, pageToken);
+      let lastMessageIdInBatch = "";
 
       for (const email of emails) {
         try {
           const details = await fetchEmailDetails(accountId, userId, email.id);
           await saveEmail(accountId, details);
-          processed++;
-
-          // Update progress every 10 emails
-          if (processed % 10 === 0) {
-            await updateGmailAccountSyncStatus(accountId, "syncing", total, processed);
-          }
-        } catch (error) {
-          console.error(`Failed to process email ${email.id}:`, error);
+          lastMessageIdInBatch = email.id;
+          processedCount++;
+        } catch (error: any) {
+          console.error(
+            `[GmailSync] [AccountID:${accountId}] [Error] Failed to process email ${email.id}:`,
+            error.message
+          );
+          skippedCount++;
+          // Continue with next email - don't fail entire sync
         }
       }
 
-      pageToken = nextPageToken;
+      // Save progress after entire batch completes
+      await saveProgressTransaction(
+        accountId,
+        processedCount,
+        nextPageToken || "",
+        lastMessageIdInBatch
+      );
 
-      // Rate limiting: small delay between batches
+      // Log progress every 10 batches (every 1000 emails)
+      batchNumber++;
+      if (batchNumber % 10 === 0) {
+        const percentage = Math.floor((processedCount / totalCount) * 100);
+        const elapsedSeconds = Math.floor((Date.now() - syncStartTime) / 1000);
+        console.log(
+          `[GmailSync] [AccountID:${accountId}] [Progress] ${processedCount}/${totalCount} (${percentage}%) - ${batchNumber} batches, ${elapsedSeconds}s elapsed`
+        );
+      }
+
+      // Rate limiting
       await new Promise((resolve) => setTimeout(resolve, 100));
-    } while (pageToken);
 
-    await updateGmailAccountSyncStatus(accountId, "completed", total, processed);
+      // Check for completion
+      if (!nextPageToken) {
+        break;
+      }
 
-    return { processed, total };
-  } catch (error) {
-    await updateGmailAccountSyncStatus(accountId, "error");
+      currentPageToken = nextPageToken;
+    } while (true);
+
+    // Phase 3: Completion
+    await clearResumeData(accountId);
+    await updateGmailAccountSyncStatus(
+      accountId,
+      "completed",
+      totalCount,
+      processedCount,
+      "",
+      "",
+      null,
+      "",
+      syncType === "initial" ? true : undefined,
+      ""
+    );
+
+    const durationSeconds = Math.floor((Date.now() - syncStartTime) / 1000);
+    console.log(
+      `[GmailSync] [AccountID:${accountId}] [Complete] Processed ${processedCount} emails in ${durationSeconds}s. Skipped: ${skippedCount}`
+    );
+
+    return { processed: processedCount, total: totalCount };
+  } catch (error: any) {
+    // Phase 4: Error Handling
+    console.error(`[GmailSync] [AccountID:${accountId}] [Error] ${error.message}`, error);
+
+    // Determine error type and handling
+    let errorMessage = "Unexpected error occurred. Please retry or contact support.";
+    let shouldPreserveResume = true;
+
+    if (error.message?.includes("401") || error.message?.includes("403")) {
+      // Auth error
+      errorMessage = "Gmail access expired. Please reconnect your account.";
+      shouldPreserveResume = false;
+      await clearResumeData(accountId);
+    } else if (error.message?.includes("429") || error.message?.includes("quota")) {
+      // Rate limit error
+      errorMessage = "Gmail rate limit reached. Please retry in 1 hour.";
+      shouldPreserveResume = true;
+    } else if (
+      error.message?.includes("fetch") ||
+      error.message?.includes("network") ||
+      error.message?.includes("timeout")
+    ) {
+      // Network error
+      errorMessage = "Network error occurred. Click 'Sync Now' to retry.";
+      shouldPreserveResume = true;
+    }
+
+    await updateGmailAccountSyncStatus(
+      accountId,
+      "error",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      errorMessage
+    );
+
+    console.log(
+      `[GmailSync] [AccountID:${accountId}] [Error] ${error.message}, Resume preserved: ${shouldPreserveResume}`
+    );
+
     throw error;
   }
 };

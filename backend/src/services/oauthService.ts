@@ -25,6 +25,12 @@ export interface GmailAccount {
   sync_status: string;
   total_emails: number;
   processed_emails: number;
+  last_page_token: string;
+  last_processed_message_id: string;
+  sync_started_at: Date | null;
+  resume_query_hash: string;
+  is_initial_sync_complete: boolean;
+  last_error: string;
 }
 
 export const createOAuthCredential = async (
@@ -121,7 +127,9 @@ export const getGmailAccounts = async (
   userId: string
 ): Promise<GmailAccount[]> => {
   const result = await query(
-    `SELECT id, user_id, oauth_credential_id, email, token_expiry, is_active, last_sync, sync_status, total_emails, processed_emails
+    `SELECT id, user_id, oauth_credential_id, email, token_expiry, is_active, last_sync, sync_status,
+            total_emails, processed_emails, last_page_token, last_processed_message_id,
+            sync_started_at, resume_query_hash, is_initial_sync_complete, last_error
      FROM gmail_accounts WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
@@ -170,10 +178,21 @@ export const updateGmailAccountSyncStatus = async (
   accountId: string,
   status: string,
   totalEmails?: number,
-  processedEmails?: number
+  processedEmails?: number,
+  lastPageToken?: string,
+  lastProcessedMessageId?: string,
+  syncStartedAt?: Date | null,
+  resumeQueryHash?: string,
+  isInitialSyncComplete?: boolean,
+  lastError?: string
 ): Promise<void> => {
-  let queryText = `UPDATE gmail_accounts SET sync_status = $1, last_sync = CURRENT_TIMESTAMP`;
+  let queryText = `UPDATE gmail_accounts SET sync_status = $1`;
   const params: any[] = [status];
+
+  // Always update last_sync when status changes
+  if (status === "completed") {
+    queryText += `, last_sync = CURRENT_TIMESTAMP`;
+  }
 
   if (totalEmails !== undefined) {
     queryText += `, total_emails = $${params.length + 1}`;
@@ -185,8 +204,130 @@ export const updateGmailAccountSyncStatus = async (
     params.push(processedEmails);
   }
 
+  if (lastPageToken !== undefined) {
+    queryText += `, last_page_token = $${params.length + 1}`;
+    params.push(lastPageToken);
+  }
+
+  if (lastProcessedMessageId !== undefined) {
+    queryText += `, last_processed_message_id = $${params.length + 1}`;
+    params.push(lastProcessedMessageId);
+  }
+
+  if (syncStartedAt !== undefined) {
+    queryText += `, sync_started_at = $${params.length + 1}`;
+    params.push(syncStartedAt);
+  }
+
+  if (resumeQueryHash !== undefined) {
+    queryText += `, resume_query_hash = $${params.length + 1}`;
+    params.push(resumeQueryHash);
+  }
+
+  if (isInitialSyncComplete !== undefined) {
+    queryText += `, is_initial_sync_complete = $${params.length + 1}`;
+    params.push(isInitialSyncComplete);
+  }
+
+  if (lastError !== undefined) {
+    queryText += `, last_error = $${params.length + 1}`;
+    params.push(lastError);
+  }
+
   queryText += ` WHERE id = $${params.length + 1}`;
   params.push(accountId);
 
   await query(queryText, params);
+};
+
+/**
+ * Interface for resume status information
+ */
+export interface ResumeStatus {
+  canResume: boolean;
+  resumeToken: string | null;
+  resumeMessageId: string | null;
+  processedCount: number;
+  totalCount: number;
+  queryHash: string;
+  isStale: boolean;
+  staleReason?: string;
+}
+
+/**
+ * Get resume status for a Gmail account to determine if sync can be resumed
+ *
+ * @param accountId - Gmail account ID
+ * @returns Resume status information
+ */
+export const getResumeStatus = async (
+  accountId: string
+): Promise<ResumeStatus> => {
+  const result = await query(
+    `SELECT sync_status, last_page_token, last_processed_message_id, processed_emails,
+            total_emails, sync_started_at, resume_query_hash
+     FROM gmail_accounts WHERE id = $1`,
+    [accountId]
+  );
+
+  if (result.rows.length === 0) {
+    throw new AppError("Gmail account not found", 404);
+  }
+
+  const account = result.rows[0];
+  const now = new Date();
+  const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+
+  let canResume = false;
+  let isStale = false;
+  let staleReason: string | undefined;
+
+  // Check if sync is in a resumable state
+  const isSyncing = account.sync_status === "syncing" || account.sync_status === "error";
+  const hasResumeToken = account.last_page_token && account.last_page_token !== "";
+
+  if (!isSyncing) {
+    // Nothing to resume if not syncing or error
+    canResume = false;
+    staleReason = "No sync in progress";
+  } else if (!hasResumeToken) {
+    // No resume point saved
+    canResume = false;
+    staleReason = "No resume token available";
+  } else {
+    // Check if sync is stale (started more than 30 minutes ago)
+    if (account.sync_started_at && new Date(account.sync_started_at) < thirtyMinutesAgo) {
+      isStale = true;
+      staleReason = `Sync started ${Math.floor((now.getTime() - new Date(account.sync_started_at).getTime()) / 60000)} minutes ago`;
+    }
+    canResume = true;
+  }
+
+  return {
+    canResume,
+    resumeToken: account.last_page_token || null,
+    resumeMessageId: account.last_processed_message_id || null,
+    processedCount: account.processed_emails || 0,
+    totalCount: account.total_emails || 0,
+    queryHash: account.resume_query_hash || "",
+    isStale,
+    staleReason,
+  };
+};
+
+/**
+ * Clear resume data after successful sync completion
+ *
+ * @param accountId - Gmail account ID
+ */
+export const clearResumeData = async (accountId: string): Promise<void> => {
+  await query(
+    `UPDATE gmail_accounts SET
+       last_page_token = '',
+       last_processed_message_id = '',
+       sync_started_at = NULL,
+       resume_query_hash = ''
+     WHERE id = $1`,
+    [accountId]
+  );
 };
