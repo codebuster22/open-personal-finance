@@ -68,7 +68,7 @@ export function useGmailAccountPolling(
    */
   const fetchAccounts = useCallback(async (): Promise<GmailAccount[]> => {
     try {
-      const response = await fetch("/api/gmail/accounts", {
+      const response = await fetch("/api/oauth/accounts", {
         credentials: "include",
       });
 
