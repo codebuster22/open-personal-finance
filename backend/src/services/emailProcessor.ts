@@ -138,13 +138,26 @@ export async function startEmailProcessing(
     let totalProcessed = 0;
     let totalSubscriptionsFound = 0;
     let hasMore = true;
+    let batchNumber = 0;
 
     while (hasMore) {
+      batchNumber++;
+      const batchStart = Date.now();
+
+      console.log(
+        `[EmailProcessing] [AccountID:${accountId}] [Batch ${batchNumber}] Processing up to ${PROCESSING_BATCH_SIZE} emails...`
+      );
+
       const batchResult = await processEmailBatch(accountId, userId, PROCESSING_BATCH_SIZE);
+      const batchDuration = Date.now() - batchStart;
 
       totalProcessed += batchResult.processed;
       totalSubscriptionsFound += batchResult.subscriptionsFound;
       hasMore = batchResult.hasMore;
+
+      console.log(
+        `[EmailProcessing] [AccountID:${accountId}] [Batch ${batchNumber}] Processed ${batchResult.processed} emails, found ${batchResult.subscriptionsFound} subscriptions in ${batchDuration}ms`
+      );
 
       // Update progress
       await query(
@@ -155,8 +168,21 @@ export async function startEmailProcessing(
         [batchResult.processed, batchResult.subscriptionsFound, accountId]
       );
 
+      // Log cumulative progress
+      const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+      const emailsPerSecond = totalProcessed / (elapsedSeconds || 1);
+      const currentProgress = analyzedCount + totalProcessed;
+      const progressPercent = Math.floor((currentProgress / toAnalyzeCount) * 100);
+
+      console.log(
+        `[EmailProcessing] [AccountID:${accountId}] [Progress] ${currentProgress}/${toAnalyzeCount} (${progressPercent}%) - ${totalSubscriptionsFound} subscriptions, ${emailsPerSecond.toFixed(1)} emails/s`
+      );
+
       if (hasMore) {
         // Delay between batches
+        console.log(
+          `[EmailProcessing] [AccountID:${accountId}] [Batch ${batchNumber}] Waiting ${PROCESSING_DELAY_MS}ms before next batch...`
+        );
         await new Promise((resolve) => setTimeout(resolve, PROCESSING_DELAY_MS));
       }
     }
@@ -217,11 +243,22 @@ async function processEmailBatch(
   // Step 2: Process each email
   let processed = 0;
   let subscriptionsFound = 0;
+  let keywordRejected = 0;
+  let claudeAnalyzed = 0;
+  let totalAICost = 0;
 
   for (const email of emails) {
     try {
       // Analyze email with hybrid approach
       const result = await analyzeEmailHybrid(email, accountId);
+
+      // Track which provider was used
+      if (result.provider === "keywords") {
+        keywordRejected++;
+      } else if (result.provider === "claude") {
+        claudeAnalyzed++;
+        totalAICost += result.cost;
+      }
 
       // Mark as processed
       await markEmailAsProcessed(email.id, result);
@@ -270,6 +307,15 @@ async function processEmailBatch(
       }
     }
   }
+
+  // Log batch summary with provider statistics
+  console.log(
+    `[EmailProcessing] [Batch Summary] Processed ${processed} emails: ` +
+    `${keywordRejected} rejected by keywords (${((keywordRejected/processed)*100).toFixed(1)}%), ` +
+    `${claudeAnalyzed} analyzed by Claude (${((claudeAnalyzed/processed)*100).toFixed(1)}%), ` +
+    `${subscriptionsFound} subscriptions found, ` +
+    `AI cost: $${totalAICost.toFixed(4)}`
+  );
 
   // Step 3: Check for more emails
   const remainingResult = await query(
