@@ -8,6 +8,7 @@ import gmailRoutes from "./routes/gmail";
 import subscriptionRoutes from "./routes/subscriptions";
 import { errorHandler } from "./middleware/errorHandler";
 import { testDatabaseConnection, initializeDatabase } from "./config/initDatabase";
+import { resumeInterruptedTasks } from "./services/startupService";
 
 dotenv.config();
 
@@ -79,6 +80,9 @@ const startServer = async () => {
 
     // Initialize database tables
     await initializeDatabase();
+
+    // Resume interrupted syncs and processing
+    await resumeInterruptedTasks();
 
     // Start server
     app.listen(PORT, () => {
