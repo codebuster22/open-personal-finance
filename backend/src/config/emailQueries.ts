@@ -1,67 +1,51 @@
 // Gmail query configuration for subscription email filtering
 
 /**
- * Subject keywords that commonly appear in subscription/billing emails
+ * High-confidence subject keywords that strongly indicate subscription/billing emails
+ * These are specific enough to avoid false positives
  */
 export const SUBSCRIPTION_SUBJECT_KEYWORDS = [
   "subscription",
   "billing",
   "invoice",
   "receipt",
-  "payment",
+  "payment received",
+  "payment confirmation",
+  "payment successful",
   "renew",
   "renewal",
   "auto-pay",
   "autopay",
   "membership",
   "premium",
-  "upgrade",
-  "plan",
-  "recurring",
+  "plan upgraded",
+  "plan downgraded",
+  "recurring charge",
+  "monthly charge",
+  "annual charge",
+  "yearly charge",
   "charged",
   "statement",
+  "payment method",
+  "card ending",
+  "trial ending",
+  "trial ends",
+  "cancel subscription",
 ];
 
 /**
- * Sender patterns commonly used by billing systems
+ * Specific billing sender patterns (removed overly generic ones like "noreply")
+ * These are specifically associated with billing/payment systems
  */
 export const BILLING_SENDER_PATTERNS = [
-  "noreply",
-  "no-reply",
   "billing",
   "subscriptions",
   "payments",
   "invoices",
   "receipts",
-  "support",
-  "accounts",
   "finance",
-];
-
-/**
- * Popular subscription services to target
- */
-export const POPULAR_SUBSCRIPTION_SERVICES = [
-  "netflix",
-  "spotify",
-  "amazon",
-  "prime",
-  "disney",
-  "hulu",
-  "apple",
-  "google",
-  "microsoft",
-  "adobe",
-  "github",
-  "slack",
-  "dropbox",
-  "notion",
-  "figma",
-  "zoom",
-  "linkedin",
-  "youtube",
-  "audible",
-  "kindle",
+  "accounts-payable",
+  "membership",
 ];
 
 /**
@@ -77,6 +61,9 @@ function formatGmailDate(date: Date): string {
 /**
  * Build Gmail API query string for email sync
  *
+ * Strategy: Focus on subscription-specific keywords in subject and billing-specific senders
+ * This avoids false positives like LinkedIn messages, Prime Video recommendations, etc.
+ *
  * @param syncType - Type of sync: "initial" (first time) or "incremental" (subsequent)
  * @param lastSyncDate - Date of last sync (for incremental syncs)
  * @param monthsBack - How many months to look back for initial sync (default: 12)
@@ -87,23 +74,22 @@ export function buildGmailSyncQuery(
   lastSyncDate: Date | null,
   monthsBack: number = 12
 ): string {
-  // Build subject filter: (subject:keyword1 OR subject:keyword2 ...)
-  const subjectFilters = SUBSCRIPTION_SUBJECT_KEYWORDS.map(
-    (keyword) => `subject:${keyword}`
-  ).join(" OR ");
+  // Build subject filter: (subject:"keyword1" OR subject:"keyword2" ...)
+  // Using quotes for multi-word phrases
+  const subjectFilters = SUBSCRIPTION_SUBJECT_KEYWORDS.map((keyword) => {
+    // Quote multi-word keywords
+    const quoted = keyword.includes(" ") ? `"${keyword}"` : keyword;
+    return `subject:${quoted}`;
+  }).join(" OR ");
 
   // Build sender filter: (from:pattern1 OR from:pattern2 ...)
   const senderFilters = BILLING_SENDER_PATTERNS.map(
     (pattern) => `from:${pattern}`
   ).join(" OR ");
 
-  // Build service filter: (from:service1 OR from:service2 ...)
-  const serviceFilters = POPULAR_SUBSCRIPTION_SERVICES.map(
-    (service) => `from:${service}`
-  ).join(" OR ");
-
   // Combine content filters with OR
-  const contentFilter = `(${subjectFilters} OR ${senderFilters} OR ${serviceFilters})`;
+  // Only using subject keywords and billing senders - removed generic service providers
+  const contentFilter = `(${subjectFilters} OR ${senderFilters})`;
 
   // Build date filter based on sync type
   let dateFilter: string;

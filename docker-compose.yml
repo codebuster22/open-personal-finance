@@ -11,6 +11,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-change-this}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-your-super-secret-encryption-key-change-this}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      DEBUG: ${DEBUG:-false}
     ports:
       - "3001:3001"
     # Uncomment for connecting to PostgreSQL on host machine (Linux)

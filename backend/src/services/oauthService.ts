@@ -31,6 +31,12 @@ export interface GmailAccount {
   resume_query_hash: string;
   is_initial_sync_complete: boolean;
   last_error: string;
+  processing_status: string;
+  emails_to_analyze: number;
+  emails_analyzed: number;
+  subscriptions_found: number;
+  processing_started_at: Date | null;
+  ai_cost_total: number;
 }
 
 export const createOAuthCredential = async (
@@ -129,7 +135,9 @@ export const getGmailAccounts = async (
   const result = await query(
     `SELECT id, user_id, oauth_credential_id, email, token_expiry, is_active, last_sync, sync_status,
             total_emails, processed_emails, last_page_token, last_processed_message_id,
-            sync_started_at, resume_query_hash, is_initial_sync_complete, last_error
+            sync_started_at, resume_query_hash, is_initial_sync_complete, last_error,
+            processing_status, emails_to_analyze, emails_analyzed, subscriptions_found,
+            processing_started_at, ai_cost_total
      FROM gmail_accounts WHERE user_id = $1 ORDER BY created_at DESC`,
     [userId]
   );
@@ -327,6 +335,76 @@ export const clearResumeData = async (accountId: string): Promise<void> => {
        last_processed_message_id = '',
        sync_started_at = NULL,
        resume_query_hash = ''
+     WHERE id = $1`,
+    [accountId]
+  );
+};
+
+/**
+ * Update processing status and related fields for a Gmail account
+ *
+ * @param accountId - Gmail account ID
+ * @param status - Processing status (idle, analyzing, completed, error)
+ * @param emailsToAnalyze - Total emails to analyze
+ * @param emailsAnalyzed - Number of emails analyzed so far
+ * @param subscriptionsFound - Number of subscriptions found
+ * @param processingStartedAt - When processing started
+ * @param aiCostIncrement - AI cost to add to total (incremental)
+ */
+export const updateProcessingStatus = async (
+  accountId: string,
+  status: string,
+  emailsToAnalyze?: number,
+  emailsAnalyzed?: number,
+  subscriptionsFound?: number,
+  processingStartedAt?: Date | null,
+  aiCostIncrement?: number
+): Promise<void> => {
+  let queryText = `UPDATE gmail_accounts SET processing_status = $1`;
+  const params: any[] = [status];
+
+  if (emailsToAnalyze !== undefined) {
+    queryText += `, emails_to_analyze = $${params.length + 1}`;
+    params.push(emailsToAnalyze);
+  }
+
+  if (emailsAnalyzed !== undefined) {
+    queryText += `, emails_analyzed = $${params.length + 1}`;
+    params.push(emailsAnalyzed);
+  }
+
+  if (subscriptionsFound !== undefined) {
+    queryText += `, subscriptions_found = $${params.length + 1}`;
+    params.push(subscriptionsFound);
+  }
+
+  if (processingStartedAt !== undefined) {
+    queryText += `, processing_started_at = $${params.length + 1}`;
+    params.push(processingStartedAt);
+  }
+
+  if (aiCostIncrement !== undefined) {
+    queryText += `, ai_cost_total = ai_cost_total + $${params.length + 1}`;
+    params.push(aiCostIncrement);
+  }
+
+  queryText += ` WHERE id = $${params.length + 1}`;
+  params.push(accountId);
+
+  await query(queryText, params);
+};
+
+/**
+ * Clear processing data for a Gmail account (reset to idle state)
+ * Preserves historical stats (emails_analyzed, subscriptions_found, ai_cost_total)
+ *
+ * @param accountId - Gmail account ID
+ */
+export const clearProcessingData = async (accountId: string): Promise<void> => {
+  await query(
+    `UPDATE gmail_accounts SET
+       processing_status = 'idle',
+       processing_started_at = NULL
      WHERE id = $1`,
     [accountId]
   );

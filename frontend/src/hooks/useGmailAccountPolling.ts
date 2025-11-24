@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api";
+
 interface GmailAccount {
   id: string;
   email: string;
@@ -9,6 +11,11 @@ interface GmailAccount {
   last_sync: string | null;
   last_error: string;
   is_initial_sync_complete: boolean;
+  processing_status: string;
+  emails_to_analyze: number;
+  emails_analyzed: number;
+  subscriptions_found: number;
+  ai_cost_total: number;
 }
 
 interface UseGmailAccountPollingReturn {
@@ -38,12 +45,23 @@ export function useGmailAccountPolling(
   const shouldBePollingRef = useRef(false);
 
   /**
+   * Update accounts state when initialAccounts prop changes
+   * This handles the case when data is refreshed externally (e.g., after OAuth callback)
+   */
+  useEffect(() => {
+    setAccounts(initialAccounts);
+  }, [initialAccounts]);
+
+  /**
    * Determine if polling should be active based on account statuses
+   * Poll during both sync and processing
    */
   const shouldPoll = useCallback((accountList: GmailAccount[]): boolean => {
     return accountList.some(
       (account) =>
-        account.sync_status === "syncing" || account.sync_status === "pending"
+        account.sync_status === "syncing" ||
+        account.sync_status === "pending" ||
+        account.processing_status === "analyzing"
     );
   }, []);
 
@@ -52,19 +70,32 @@ export function useGmailAccountPolling(
    */
   const fetchAccounts = useCallback(async (): Promise<GmailAccount[]> => {
     try {
-      const response = await fetch("/api/gmail/accounts", {
-        credentials: "include",
+      // Get auth token from localStorage
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+      };
+
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/oauth/accounts`, {
+        headers,
       });
 
       if (!response.ok) {
         throw new Error(`Failed to fetch accounts: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      setAccounts(data);
+      const result = await response.json();
+      const accountsData = result.data?.accounts || result.accounts || [];
+
+      setAccounts(accountsData);
       setLastUpdateTime(new Date());
       setError(null);
-      return data;
+      return accountsData;
     } catch (err: any) {
       const errorMessage = err.message || "Failed to fetch account status";
       setError(errorMessage);

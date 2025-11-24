@@ -28,6 +28,11 @@ interface GmailAccount {
   last_sync: string | null;
   last_error: string;
   is_initial_sync_complete: boolean;
+  processing_status: string;
+  emails_to_analyze: number;
+  emails_analyzed: number;
+  subscriptions_found: number;
+  ai_cost_total: number;
 }
 
 export default function SettingsPage() {
@@ -60,22 +65,29 @@ export default function SettingsPage() {
     }
   }, [user, loading, router]);
 
+  // Load data on mount - this ensures fresh data after OAuth callback
   useEffect(() => {
-    if (user) {
+    if (user && !loading) {
       loadData();
     }
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, loading]); // Runs when user or loading state changes
 
   const loadData = async () => {
     try {
+      console.log("[Settings] Loading OAuth credentials and Gmail accounts...");
       const [credsData, accountsData] = await Promise.all([
         api.getOAuthCredentials(),
         api.getGmailAccounts(),
       ]);
+      console.log("[Settings] ✓ Loaded credentials:", credsData.credentials.length);
+      console.log("[Settings] ✓ Loaded Gmail accounts:", accountsData.accounts.length);
+      console.log("[Settings] Gmail accounts data:", accountsData.accounts);
+
       setCredentials(credsData.credentials);
       setInitialAccounts(accountsData.accounts);
     } catch (error) {
-      console.error("Failed to load data:", error);
+      console.error("[Settings] ❌ Failed to load data:", error);
     }
   };
 
@@ -167,6 +179,34 @@ export default function SettingsPage() {
             {status}
           </span>
         );
+    }
+  };
+
+  const getProcessingStatusBadge = (status: string) => {
+    switch (status) {
+      case "analyzing":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-green-500/10 text-green-600">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Analyzing
+          </span>
+        );
+      case "completed":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-green-500/10 text-green-600">
+            <CheckCircle2 className="h-3 w-3" />
+            Analysis Complete
+          </span>
+        );
+      case "error":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full bg-red-500/10 text-red-600">
+            <AlertCircle className="h-3 w-3" />
+            Analysis Failed
+          </span>
+        );
+      default:
+        return null; // Don't show badge for "idle"
     }
   };
 
@@ -378,9 +418,10 @@ export default function SettingsPage() {
                           <div className="flex items-center gap-2 mb-2">
                             <h3 className="font-medium">{account.email}</h3>
                             {getStatusBadge(account.sync_status)}
+                            {getProcessingStatusBadge(account.processing_status)}
                           </div>
 
-                          {/* Progress information */}
+                          {/* Sync progress information */}
                           {account.total_emails > 0 && (
                             <div className="space-y-1">
                               <p className="text-sm text-muted-foreground">
@@ -396,6 +437,44 @@ export default function SettingsPage() {
                                 </div>
                               )}
                             </div>
+                          )}
+
+                          {/* Processing progress */}
+                          {account.processing_status === "analyzing" && account.emails_to_analyze > 0 && (
+                            <div className="space-y-1 mt-2">
+                              <p className="text-sm text-muted-foreground">
+                                Analyzing: {account.emails_analyzed.toLocaleString()} /{" "}
+                                {account.emails_to_analyze.toLocaleString()} emails (
+                                {Math.floor((account.emails_analyzed / account.emails_to_analyze) * 100)}%)
+                              </p>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div
+                                  className="bg-green-600 h-2 rounded-full transition-all duration-300"
+                                  style={{
+                                    width: `${Math.floor((account.emails_analyzed / account.emails_to_analyze) * 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              {account.subscriptions_found > 0 && (
+                                <p className="text-xs text-green-600 mt-1">
+                                  Found {account.subscriptions_found} subscription{account.subscriptions_found !== 1 ? "s" : ""} so far
+                                </p>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Processing completion message */}
+                          {account.processing_status === "completed" && account.subscriptions_found > 0 && (
+                            <p className="text-xs text-green-600 mt-1">
+                              ✓ Analysis complete - found {account.subscriptions_found} subscription{account.subscriptions_found !== 1 ? "s" : ""}
+                            </p>
+                          )}
+
+                          {/* AI cost display */}
+                          {Number(account.ai_cost_total) > 0 && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              AI analysis cost: ${Number(account.ai_cost_total).toFixed(2)}
+                            </p>
                           )}
 
                           {/* Error message */}

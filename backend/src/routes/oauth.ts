@@ -117,17 +117,22 @@ router.post(
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { code, credentialId } = req.body;
+      console.log(`[OAuth Callback] Starting OAuth callback flow for credential: ${credentialId}`);
 
       if (!code || !credentialId) {
+        console.error(`[OAuth Callback] Missing parameters - code: ${!!code}, credentialId: ${!!credentialId}`);
         return res.status(400).json({
           status: "error",
           message: "Code and credentialId are required",
         });
       }
 
+      console.log(`[OAuth Callback] Fetching credential for user: ${req.userId}`);
       const credential = await getOAuthCredentialById(credentialId, req.userId!);
+      console.log(`[OAuth Callback] Found credential: ${credential.credential_name}`);
 
       // Exchange code for tokens
+      console.log(`[OAuth Callback] Exchanging authorization code for tokens...`);
       const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -142,12 +147,15 @@ router.post(
 
       if (!tokenResponse.ok) {
         const error = await tokenResponse.json();
+        console.error(`[OAuth Callback] Token exchange failed:`, error);
         throw new Error(`Token exchange failed: ${JSON.stringify(error)}`);
       }
 
       const tokens = await tokenResponse.json();
+      console.log(`[OAuth Callback] Successfully exchanged code for tokens`);
 
       // Get user email from Google
+      console.log(`[OAuth Callback] Fetching user info from Google...`);
       const userInfoResponse = await fetch(
         "https://www.googleapis.com/oauth2/v2/userinfo",
         {
@@ -156,13 +164,17 @@ router.post(
       );
 
       if (!userInfoResponse.ok) {
+        console.error(`[OAuth Callback] Failed to get user info - status: ${userInfoResponse.status}`);
         throw new Error("Failed to get user info");
       }
 
       const userInfo = await userInfoResponse.json();
+      console.log(`[OAuth Callback] Got user info for: ${userInfo.email}`);
+
       const expiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 
       // Save Gmail account
+      console.log(`[OAuth Callback] Saving Gmail account for user ${req.userId}...`);
       const account = await saveGmailAccount(
         req.userId!,
         credentialId,
@@ -172,11 +184,14 @@ router.post(
         expiresAt
       );
 
+      console.log(`[OAuth Callback] ✓ Successfully saved Gmail account: ${account.email} (ID: ${account.id})`);
+
       res.json({
         status: "success",
         data: { account },
       });
     } catch (error) {
+      console.error(`[OAuth Callback] Error in callback flow:`, error);
       next(error);
     }
   }
@@ -187,13 +202,16 @@ router.get(
   "/accounts",
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      console.log(`[OAuth] Fetching Gmail accounts for user: ${req.userId}`);
       const accounts = await getGmailAccounts(req.userId!);
+      console.log(`[OAuth] Found ${accounts.length} Gmail account(s) for user ${req.userId}`);
 
       res.json({
         status: "success",
         data: { accounts },
       });
     } catch (error) {
+      console.error(`[OAuth] Error fetching accounts:`, error);
       next(error);
     }
   }
