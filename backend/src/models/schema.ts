@@ -105,7 +105,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     notes TEXT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, service_name, amount)
 );
 
 -- Indexes for better query performance
