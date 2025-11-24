@@ -471,9 +471,9 @@ export default function SettingsPage() {
                           )}
 
                           {/* AI cost display */}
-                          {account.ai_cost_total > 0 && (
+                          {Number(account.ai_cost_total) > 0 && (
                             <p className="text-xs text-muted-foreground mt-1">
-                              AI analysis cost: ${account.ai_cost_total.toFixed(2)}
+                              AI analysis cost: ${Number(account.ai_cost_total).toFixed(2)}
                             </p>
                           )}
 

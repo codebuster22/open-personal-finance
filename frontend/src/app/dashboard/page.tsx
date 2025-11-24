@@ -108,7 +108,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${stats?.totalMonthly.toFixed(2) || "0.00"}
+                ${stats?.totalMonthly ? Number(stats.totalMonthly).toFixed(2) : "0.00"}
               </div>
               <p className="text-xs text-muted-foreground">
                 {stats?.activeCount || 0} active subscriptions
@@ -123,7 +123,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                ${stats?.totalYearly.toFixed(2) || "0.00"}
+                ${stats?.totalYearly ? Number(stats.totalYearly).toFixed(2) : "0.00"}
               </div>
               <p className="text-xs text-muted-foreground">Projected annual cost</p>
             </CardContent>
@@ -202,7 +202,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="text-right">
                       <div className="font-medium">
-                        ${sub.amount.toFixed(2)} {sub.currency}
+                        ${Number(sub.amount).toFixed(2)} {sub.currency}
                       </div>
                       <div className="text-sm text-muted-foreground">
                         {sub.status}
